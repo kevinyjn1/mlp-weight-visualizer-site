@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow">
+  <title>MLP Weight Visualizer</title>
+  <meta name="description" content="A 3D walk through a small weld classifier, once with trained weights and once with weights written by an LLM.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23182149'/%3E%3Crect x='6' y='14' width='5' height='12' rx='1' fill='%2386c1ff'/%3E%3Crect x='13.5' y='7' width='5' height='19' rx='1' fill='%2374e695'/%3E%3Crect x='21' y='18' width='5' height='8' rx='1' fill='%23ff8f50'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/style.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.min.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" width="22" height="22" aria-hidden="true">
+        <rect x="3" y="13" width="7" height="15" rx="1.5" fill="#86c1ff"/>
+        <rect x="12.5" y="4" width="7" height="24" rx="1.5" fill="#74e695"/>
+        <rect x="22" y="18" width="7" height="10" rx="1.5" fill="#ff8f50"/>
+      </svg>
+      <span>MLP Weight Visualizer</span>
+    </div>
+    <div class="tabs" role="tablist" aria-label="Which weights to show">
+      <button class="tab" role="tab" id="tab-trained" data-tab="trained" aria-selected="true">
+        <span>Trained</span><small>Prof. Shao's MLP</small>
+      </button>
+      <button class="tab" role="tab" id="tab-written" data-tab="written" aria-selected="false">
+        <span class="long">Written by an LLM</span><span class="short">LLM-written</span><small>MIT's method</small>
+      </button>
+      <button class="tab" role="tab" id="tab-few" data-tab="few" aria-selected="false">
+        <span class="long">Written from 18 welds</span><span class="short">From 18 welds</span><small>Dennis's method</small>
+      </button>
+    </div>
+    <div class="top-right">
+      <button class="ghost" id="about-open" type="button">About</button>
+    </div>
+  </header>
+
+  <main>
+    <aside id="panel" aria-label="Walkthrough" data-mode="walk">
+      <div class="modes" id="modes" role="tablist" aria-label="What the panel shows" hidden>
+        <button type="button" role="tab" data-mode="walk" aria-selected="true">Walkthrough</button>
+        <button type="button" role="tab" data-mode="doc" id="mode-doc" aria-selected="false">How it was written</button>
+      </div>
+      <div class="doc" id="made-root" hidden></div>
+      <div class="doc" id="few-root" hidden></div>
+      <div class="panel-head">
+        <button class="nav" id="prev" type="button" aria-label="Previous step">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <div class="step-title">
+          <div class="step-count" id="step-count"></div>
+          <h1 id="step-title"></h1>
+        </div>
+        <button class="nav" id="next" type="button" aria-label="Next step">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+      <ol class="dots" id="dots" aria-label="Steps"></ol>
+      <div class="scroll" id="scroll">
+        <div class="prose" id="step-body"></div>
+        <section class="card" id="glance" aria-label="This network at a glance"></section>
+        <section class="card key" aria-label="Colour key">
+          <div class="key-row"><span class="key-name">Weights</span><span class="key-end">-</span><span class="ramp ramp-weights"></span><span class="key-end">+</span></div>
+          <div class="key-row"><span class="key-name">Values</span><span class="key-end">-</span><span class="ramp ramp-data"></span><span class="key-end">+</span></div>
+          <p>Bar height and brightness show the size of a number, scaled within each block. A flat dark cell is exactly zero.</p>
+        </section>
+      </div>
+      <div class="panel-foot">
+        <button class="secondary" id="back" type="button">Back</button>
+        <button class="primary" id="continue" type="button">Continue</button>
+      </div>
+    </aside>
+
+    <section id="stage" aria-label="3D view of the network">
+      <canvas id="view"></canvas>
+      <div class="labels" id="labels"></div>
+
+      <div class="hud hud-tl">
+        <label class="chip">
+          <span>Input</span>
+          <select id="input-select" aria-label="Example input"></select>
+        </label>
+        <label class="chip" id="reply-chip" hidden>
+          <span>Reply</span>
+          <select id="reply-select" aria-label="Which of Astra's replies"></select>
+        </label>
+        <label class="chip few-only" hidden>
+          <span>By</span>
+          <select id="writer-select" aria-label="Who wrote the numbers"></select>
+        </label>
+        <label class="chip few-only" hidden>
+          <span>Prompt</span>
+          <select id="set-select" aria-label="Which version of the prompt"></select>
+        </label>
+        <label class="chip few-only" hidden>
+          <span>Welds</span>
+          <select id="draw-select" aria-label="Which draw of 18 welds"></select>
+        </label>
+      </div>
+
+      <div class="hud hud-tr">
+        <button class="icon" id="top-view" type="button" aria-pressed="false" title="Look straight down / tilt back">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 8l8-4 8 4-8 4-8-4zm0 4l8 4 8-4M4 16l8 4 8-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+          <span>Top view</span>
+        </button>
+        <button class="icon" id="reset-view" type="button" title="Back to this step's view">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.6-5.9M4 4v5h5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span>Reset</span>
+        </button>
+      </div>
+
+      <div class="hud hud-bl">
+        <button class="toggle" id="products" type="button" aria-pressed="false" title="Show every weight multiplied by the input it receives">
+          <span class="box" aria-hidden="true"></span>Weights × input
+        </button>
+        <label class="slider">
+          <span>Bar height</span>
+          <input id="height" type="range" min="0" max="2" step="0.05" value="1" aria-label="Bar height">
+        </label>
+      </div>
+
+      <div class="hint" id="hint">Drag to pan · Shift + drag to rotate · scroll to zoom · hover a cell</div>
+      <div class="tip" id="tip" role="status" hidden></div>
+      <div class="loading" id="loading">Loading 99,959 weights…</div>
+    </section>
+  </main>
+
+  <dialog id="about">
+    <form method="dialog">
+      <h2>About this page</h2>
+      <p><strong>The network.</strong> The <code>DWTClassifier</code> of Prof. Chenhui Shao's group (University of Michigan): 528 wavelet features of an ultrasonic metal weld, hidden layers of 150, 100 and 50 ReLU units, and 9 output classes (3 tool states x 3 surface states). 99,959 parameters.</p>
+      <p><strong>Trained tab.</strong> One of the group's saved checkpoints (stratified split 0), trained on 162 labelled welds. The group's five saved networks score 88.9% ± 2.9% on their held-out test welds.</p>
+      <p><strong>Written by an LLM tab.</strong> The same architecture, with weights written directly as text by GPT-6 Astra from a description of the process, with no data and no training. This is the method of MIT CSAIL's "Sparks of Weight-Space Programming". Run on 2026-11-06: five replies, 2.2% to 14.4% test accuracy, 8.8% on average; guessing scores 11.1%.</p>
+      <p><strong>How it was written.</strong> For the LLM-written tab: the exact prompt, Astra's plan, its edits group by group, the explanation it gave when asked two days later, and the rule decoded from the finished weights. Astra's reasoning while writing was not logged, so the explanation is after the fact, not a trace.</p>
+      <p><strong>Written from 18 welds tab.</strong> Dennis's experiment (branch <code>dennis/usmw-few-welds</code>): not the MLP, but a centroid per condition and a spread per feature on 8 features, written by Claude Fable 5.2 and Claude Sonnet 5.5 from 18 labelled welds. About 70% on the 252 held-out welds, against 69% for a formula with no AI.</p>
+      <p><strong>Inputs.</strong> The real welds are held-out test welds of split 0, standardized with the checkpoint's own scaler. Nine were picked among the welds the trained network reads correctly and one among those it misreads, so they are not a fair sample of its accuracy. The synthetic inputs are not welds: each is the smallest pattern the trained network reads as one class with 99% confidence.</p>
+      <p><strong>Private.</strong> The weights, the weld features and the prompts (which hold weld values) come from a course dataset that is not public. Please do not pass this page, its link or its data files on outside the team. The published copy is locked: it opens only from the full link.</p>
+      <p class="credit">Inspired by Brendan Bycroft's <a href="https://bbycroft.net/llm" target="_blank" rel="noopener">LLM Visualization</a>. Drawn with three.js.</p>
+      <button class="primary" value="close">Close</button>
+    </form>
+  </dialog>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
