@@ -462,6 +462,33 @@ mark { background: #ffe9a8; border-radius: 3px; padding: 0 1px; }
 mark.flash { animation: flash 1.6s ease-out; }
 @keyframes flash { from { background: #ffb800; box-shadow: 0 0 0 4px #ffb80066; } to { background: #ffe9a8; box-shadow: none; } }
 
+.thoughts { margin: 0 0 4px; padding: 0; list-style: none; counter-reset: thought; }
+.thoughts li {
+  position: relative;
+  margin: 0 0 9px;
+  padding: 9px 11px 1px 38px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  counter-increment: thought;
+}
+.thoughts li::before {
+  content: counter(thought);
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #e6e8ee;
+  color: var(--muted);
+  font: 700 11px var(--font-ui);
+}
+.thoughts li > b { display: block; margin-bottom: 3px; font: 650 13.5px/1.3 var(--font-ui); }
+.thoughts li p { font-size: 14px; }
+
 .stepper { display: flex; align-items: center; gap: 9px; margin: 2px 0 12px; font: 600 13px var(--font-ui); }
 .stepper .nav { width: 30px; height: 30px; font-size: 19px; line-height: 1; }
 .stepper .check { display: flex; align-items: center; gap: 6px; margin-left: auto; font-weight: 500; color: var(--muted); cursor: pointer; }

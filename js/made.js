@@ -2,10 +2,11 @@
 //
 // For one reply it shows, in the order things happened: the prompt, Astra's plan, the edits it wrote (group by group,
 // split at its own comments), the explanation it gave when asked two days later, and the rule the research repo
-// decoded from the finished weights. Astra's reasoning while writing was never logged, and the page says so.
+// decoded from the finished weights. Astra's reasoning itself was not returned by the API; OpenAI's summaries of it
+// were saved, and are shown as what they are: a summarizer's paraphrase.
 
 import { LAYERS, OFFSETS, describeFeature, pct } from './net.js';
-import { escapeHtml, markdown, plainText } from './md.js';
+import { escapeHtml, inline, markdown, plainText } from './md.js';
 
 const layerOf = (tensor) => +tensor[1];
 const n = (v) => v.toLocaleString('en-US');
@@ -151,6 +152,12 @@ export function createMade({ root, view, data, state, actions }) {
     const promptHtml = (cache.prompt ??= plainText(P.prompt.text, PASSAGES));
     const e = r.explanation;
     const d = r.decoded;
+    const why = r.reasoning ?? { parts: [], items: 0, summarized: 0 };
+    // one part of the summary: a bold heading the summarizer gave it, then a paragraph
+    const thought = (text) => {
+      const m = text.match(/^\*\*(.+?)\*\*\s*([\s\S]*)$/);
+      return `<li>${m ? `<b>${inline(m[1])}</b>${markdown(m[2])}` : markdown(text)}</li>`;
+    };
     const tools = ['damaged', 'new', 'worn'];
     const cell = (v) => (v == null ? '' : `${v > 0 ? '+' : ''}${v.toFixed(2)}`);
     const rule = d
@@ -171,10 +178,12 @@ export function createMade({ root, view, data, state, actions }) {
     c.html = `
       <div class="notice">
         <b>What can and cannot be traced.</b> Astra spent ${n(r.reasoning_tokens)} reasoning tokens on this reply
-        (${n(r.output_tokens)} output tokens, ${r.seconds} s), but the API returns only that count: its private
-        reasoning was never logged and cannot be shown. What exists is below, in the order it happened. Parts 1 to 3
-        are from the run itself. Part 4 is Astra explaining its own numbers two days later: <b>an after-the-fact
-        account, not a trace</b>.
+        (${n(r.output_tokens)} output tokens, ${r.seconds} s). The reasoning itself was not returned by the API.
+        ${why.parts.length
+          ? `What was saved is <b>OpenAI's summary of it</b>, ${why.parts.length} parts written by a separate summarizer: a paraphrase, shown in part 2.`
+          : 'No summary of it was saved for this reply.'}
+        Parts 1, 3 and 4 are the prompt and Astra's visible reply. Part 5 is Astra explaining its own numbers two days
+        later: <b>an after-the-fact account, not a trace</b>.
       </div>
       <details class="part" data-part="prompt">
         <summary><i>1</i>The prompt<small>${n(P.prompt.text.length)} characters, the same for all five replies</small></summary>
@@ -182,23 +191,34 @@ export function createMade({ root, view, data, state, actions }) {
           The typical values in it were computed over all 270 welds with the labels ignored.</p>
         <div class="prompt">${promptHtml}</div>
       </details>
+      <details class="part" data-part="reasoning">
+        <summary><i>2</i>Astra's reasoning, as summarized by OpenAI<small>${why.parts.length} parts, in their original order</small></summary>
+        <p class="warn">A summary written by OpenAI's summarizer from the hidden reasoning; a paraphrase, not the
+          reasoning itself. The full reasoning (${n(r.reasoning_tokens)} tokens) was not returned.</p>
+        ${why.parts.length
+          ? `<p class="meta">The saved response holds ${why.items} reasoning steps; ${why.summarized} of them carry a
+              summary, so there are gaps between the parts. They come before the reply was written: this is where
+              Astra weighed what to assume.</p>
+            <ol class="thoughts">${why.parts.map(thought).join('')}</ol>`
+          : '<p class="meta">The saved response carries no summary for this reply.</p>'}
+      </details>
       <details class="part" data-part="plan">
-        <summary><i>2</i>Astra's plan<small>the text of its reply, before the numbers</small></summary>
+        <summary><i>3</i>Astra's plan<small>the text of its reply, before the numbers</small></summary>
         <div class="md">${markdown(meta.design)}</div>
       </details>
       <details class="part" data-part="edits" open>
-        <summary><i>3</i>The edits, group by group<small>${r.groups.length} groups, ${meta.statements} statements, ${n(data.written[state.reply].nonzero)} non-zero numbers</small></summary>
+        <summary><i>4</i>The edits, group by group<small>${r.groups.length} groups, ${meta.statements} statements, ${n(data.written[state.reply].nonzero)} non-zero numbers</small></summary>
         <div id="made-group"></div>
       </details>
       <details class="part" data-part="asked">
-        <summary><i>4</i>Asked afterwards: where did each number come from?<small>${e ? `${P.asked.date}, same conversation${e.complete ? '' : ', answer cut off'}` : 'not asked'}</small></summary>
+        <summary><i>5</i>Asked afterwards: where did each number come from?<small>${e ? `${P.asked.date}, same conversation${e.complete ? '' : ', answer cut off'}` : 'not asked'}</small></summary>
         ${e ? `<p class="meta">The question, sent as a follow-up in the same conversation, with no weld, score or label
           shown:</p><blockquote>${escapeHtml(P.asked.question).replace(/\n\n/g, '<br><br>')}</blockquote>
           ${e.complete ? '' : '<p class="warn">This answer hit the 18,000-token output limit and stops in the middle of a table. The later layers are not covered.</p>'}
           <div class="md">${markdown(e.text)}</div>` : ''}
       </details>
       <details class="part" data-part="rule">
-        <summary><i>5</i>The rule these weights compute<small>decoded from the weights, and compared with the welds</small></summary>
+        <summary><i>6</i>The rule these weights compute<small>decoded from the weights, and compared with the welds</small></summary>
         ${rule}
       </details>`;
     return c.html;
