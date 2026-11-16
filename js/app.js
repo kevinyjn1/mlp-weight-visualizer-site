@@ -9,9 +9,10 @@ import { STEPS } from './guide.js';
 import { escapeHtml, markdown } from './md.js';
 import { createMade, groupTitle } from './made.js';
 import { createFew } from './few.js';
+import { createLr } from './lr.js';
 
 const $ = (sel) => document.querySelector(sel);
-const TABS = ['trained', 'written', 'few'];
+const TABS = ['trained', 'written', 'few', 'lr'];
 // the link is "#<tab>", and in the locked public copy "#<tab>&k=<key>"
 const fromHash = () => {
   const tab = location.hash.slice(1).split('&')[0];
@@ -32,9 +33,10 @@ const state = {
   shown: 8,
   fewShown: 2,
   act: null,
-  mode: { trained: 'walk', written: 'walk', few: 'walk' },
+  mode: { trained: 'walk', written: 'walk', few: 'walk', lr: 'walk' },
   made: { group: 0, buildUp: false, fly: true },
   few: { set: 0, draw: 0, writer: 'fable', weld: 0, step: 0 },
+  lr: { step: 0, task: 'surf_CP', feature: null, plot: null, metric: 0, model: 'mlp', sensor: 'Power', range: 300 },
 };
 const DOC_STEP = { focus: null, contrib: [], shown: 8 }; // what the 3D view shows while a document is open
 let data = null;
@@ -42,6 +44,8 @@ let inputs = [];
 let predLabel = null;
 let made = null;
 let few = null;
+let lr = null;
+let layout = 'mlp'; // what the 3D view holds: Prof. Shao's MLP or Dennis's classifier
 
 // room the framed blocks must leave free: the controls over the view, and a row of name tags above the blocks
 view.getInsets = () => {
@@ -57,9 +61,10 @@ view.getInsets = () => {
 // ------------------------------------------------------------------ what is on screen
 
 const isFew = () => state.tab === 'few';
+const isLr = () => state.tab === 'lr';
 const mode = () => state.mode[state.tab];
-const steps = () => (isFew() ? few.STEPS : STEPS);
-const stepIndex = () => (isFew() ? state.few.step : state.step);
+const steps = () => (isFew() ? few.STEPS : isLr() ? lr.STEPS : STEPS);
+const stepIndex = () => (isFew() ? state.few.step : isLr() ? state.lr.step : state.step);
 const currentInput = () => inputs[state.input];
 const lower = (c) => className(c, data.manifest).toLowerCase();
 const building = () => state.tab === 'written' && mode() === 'doc' && state.made.buildUp;
@@ -91,6 +96,10 @@ function normWeights(net) {
 }
 
 function render() {
+  if (isLr()) {
+    renderPanel(lr.render());
+    return;
+  }
   if (isFew()) {
     const c = few.render();
     renderPanel(c);
@@ -227,7 +236,7 @@ function mlpGlance(c) {
 
 function renderPanel(c) {
   const doc = mode() === 'doc';
-  const modes = { trained: null, written: made && 'How it was written', few: 'Prompt and reply' }[state.tab];
+  const modes = { trained: null, written: made && 'How it was written', few: 'Prompt and reply', lr: null }[state.tab];
   $('#panel').dataset.mode = mode();
   $('#modes').hidden = !modes;
   if (modes) {
@@ -266,7 +275,7 @@ function renderPanel(c) {
   $('#back').disabled = $('#prev').disabled = k === 0;
   $('#next').disabled = k === list.length - 1;
   $('#continue').textContent = k === list.length - 1 ? 'Start over' : 'Continue';
-  $('#glance').innerHTML = isFew() ? few.glance(c) : mlpGlance(c);
+  $('#glance').innerHTML = isFew() ? few.glance(c) : isLr() ? lr.glance(c) : mlpGlance(c);
 }
 
 function renderDecal(c) {
@@ -308,11 +317,37 @@ function goTo(k) {
   const list = steps();
   const n = Math.min(Math.max(k, 0), list.length - 1);
   if (isFew()) state.few.step = n;
+  else if (isLr()) state.lr.step = n;
   else state.step = n;
   showTip(null);
+  if (!isLr() && mode() !== 'doc') view.setMask(null); // a lit input from the inputs tab goes out
+  list[n].enter?.();
   render();
-  fly(list[n].frame);
+  if (isLr()) $('#lr-root').scrollTop = 0;
+  else fly(list[n].frame);
   $('#scroll').scrollTop = 0;
+}
+
+/** From the inputs tab: light one input, and the row of W1 it feeds, in the trained network. */
+function showInput(i) {
+  setTab('trained');
+  goTo(STEPS.findIndex((s) => s.frame === 'input'));
+  const row = Array.from({ length: LAYERS[1] }, (_, j) => i * LAYERS[1] + j);
+  view.setMask({ x: [i], W1: row });
+  view.flyToCells('W1', row);
+  const f = describeFeature(i, data.manifest);
+  toast(`Lit: input ${i} (${f.sensor} · ${f.band} · ${f.stat}) and the ${LAYERS[1]} weights it feeds in W1. Continue, or
+    change tabs, to clear it.`);
+}
+
+function toast(text) {
+  const el = $('#toast');
+  el.textContent = text;
+  el.hidden = false;
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => {
+    el.hidden = true;
+  }, 9000);
 }
 
 function setMode(next) {
@@ -332,14 +367,15 @@ function setMode(next) {
 
 function setTab(tab) {
   if (tab === state.tab) return;
-  const family = isFew();
   state.tab = tab;
   showTip(null);
   view.setMask(null);
   history.replaceState(null, '', `#${tab}${linkKey()}`);
   syncTabs();
-  if (family !== isFew()) {
-    view.setLayout(isFew() ? 'few' : 'mlp');
+  const want = isFew() ? 'few' : 'mlp';
+  if (!isLr() && want !== layout) {
+    layout = want;
+    view.setLayout(want);
     fillInputs();
     fly(mode() === 'doc' ? (isFew() ? 'fewAll' : 'all') : steps()[stepIndex()].frame, 900);
   }
@@ -352,6 +388,7 @@ function syncTabs() {
   $('#reply-chip').hidden = state.tab !== 'written';
   for (const el of document.querySelectorAll('.few-only')) el.hidden = !isFew();
   $('#products').hidden = isFew();
+  $('#lr-root').hidden = !isLr();
   document.body.dataset.tab = state.tab;
 }
 
@@ -709,11 +746,15 @@ async function start() {
     few = createFew({ view, data, state, actions: { fly } });
     few.buildLabels();
   }
-  for (const el of document.querySelectorAll('.tab')) if (el.dataset.tab === 'few' && !few) el.hidden = true;
-  if (state.tab === 'few' && !few) state.tab = 'trained';
+  if (data.usefulness) lr = createLr({ root: $('#lr-root'), data, state, actions: { changed: render, goTo, showInput } });
+  for (const el of document.querySelectorAll('.tab')) {
+    if ((el.dataset.tab === 'few' && !few) || (el.dataset.tab === 'lr' && !lr)) el.hidden = true;
+  }
+  if ((state.tab === 'few' && !few) || (state.tab === 'lr' && !lr)) state.tab = 'trained';
   buildControls();
   syncTabs();
   if (isFew()) {
+    layout = 'few';
     view.setLayout('few');
     fillInputs();
     view.snapTo('fewAll');

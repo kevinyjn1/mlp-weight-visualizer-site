@@ -128,11 +128,14 @@ export async function loadData(base = 'data/') {
     if (error instanceof LockedError) throw error;
     return null; // a copy exported without this part
   });
-  const [provenance, few] = await Promise.all([optional('provenance.json'), optional('few_welds.json')]);
+  const [provenance, few, usefulness] = await Promise.all([
+    optional('provenance.json'), optional('few_welds.json'), optional('usefulness.json'),
+  ]);
   return {
     manifest,
     provenance,
     few,
+    usefulness,
     trained: parseWeights(trained),
     written: written.map(parseWeights),
     inputs: manifest.inputs.items.map((meta, k) => ({ ...meta, x: x.subarray(k * 528, (k + 1) * 528) })),

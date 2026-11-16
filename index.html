@@ -37,6 +37,9 @@
       <button class="tab" role="tab" id="tab-few" data-tab="few" aria-selected="false">
         <span class="long">Written from 18 welds</span><span class="short">From 18 welds</span><small>Dennis's method</small>
       </button>
+      <button class="tab" role="tab" id="tab-lr" data-tab="lr" aria-selected="false">
+        <span class="long">Which inputs matter</span><span class="short">Inputs</span><small>Logistic regression</small>
+      </button>
     </div>
     <div class="top-right">
       <button class="ghost" id="about-open" type="button">About</button>
@@ -81,6 +84,7 @@
 
     <section id="stage" aria-label="3D view of the network">
       <canvas id="view"></canvas>
+      <div id="lr-root" class="lr-root" hidden aria-label="Charts: which of the 528 inputs matter"></div>
       <div class="labels" id="labels"></div>
 
       <div class="hud hud-tl">
@@ -129,6 +133,7 @@
 
       <div class="hint" id="hint">Drag to pan · Shift + drag to rotate · scroll to zoom · hover a cell</div>
       <div class="tip" id="tip" role="status" hidden></div>
+      <div class="toast" id="toast" role="status" hidden></div>
       <div class="loading" id="loading">Loading 99,959 weights…</div>
     </section>
   </main>
@@ -141,6 +146,7 @@
       <p><strong>Written by an LLM tab.</strong> The same architecture, with weights written directly as text by GPT-6 Astra from a description of the process, with no data and no training. This is the method of MIT CSAIL's "Sparks of Weight-Space Programming". Run on 2026-11-06: five replies, 2.2% to 14.4% test accuracy, 8.8% on average; guessing scores 11.1%.</p>
       <p><strong>How it was written.</strong> For the LLM-written tab: the exact prompt, OpenAI's summaries of Astra's reasoning, Astra's plan, its edits group by group, the explanation it gave when asked two days later, and the rule decoded from the finished weights. The reasoning itself was not returned by the API: the summaries are a summarizer's paraphrase of it, and the later explanation is after the fact, not a trace.</p>
       <p><strong>Written from 18 welds tab.</strong> Dennis's experiment (branch <code>dennis/usmw-few-welds</code>): not the MLP, but a centroid per condition and a spread per feature on 8 features, written by Claude Fable 5.2 and Claude Sonnet 5.5 from 18 labelled welds. About 70% on the 252 held-out welds, against 69% for a formula with no AI.</p>
+      <p><strong>Which inputs matter tab.</strong> Not a network: charts of an exploratory analysis in the research repository (<code>experiments/usmw_feature_usefulness</code>, 2026-11-16). Logistic regression and the lasso on Prof. Shao's 528 inputs, one question at a time (three pairs of tools, three pairs of surfaces, all 9 conditions), on the group's 5 splits; what the trained networks lose when groups of inputs are shuffled; and time-window inputs for comparison. Every chart shows held-out test accuracy or how often an input was picked; the window statistics were chosen after looking at the labels, so their accuracy is optimistic.</p>
       <p><strong>Inputs.</strong> The real welds are held-out test welds of split 0, standardized with the checkpoint's own scaler. Nine were picked among the welds the trained network reads correctly and one among those it misreads, so they are not a fair sample of its accuracy. The synthetic inputs are not welds: each is the smallest pattern the trained network reads as one class with 99% confidence.</p>
       <p><strong>Private.</strong> The weights, the weld features and the prompts (which hold weld values) come from a course dataset that is not public. Please do not pass this page, its link or its data files on outside the team. The published copy is locked: it opens only from the full link.</p>
       <p class="credit">Inspired by Brendan Bycroft's <a href="https://bbycroft.net/llm" target="_blank" rel="noopener">LLM Visualization</a>. Drawn with three.js.</p>
