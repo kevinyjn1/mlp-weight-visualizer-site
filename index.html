@@ -40,6 +40,9 @@
       <button class="tab" role="tab" id="tab-lr" data-tab="lr" aria-selected="false">
         <span class="long">Which inputs matter</span><span class="short">Inputs</span><small>Logistic regression</small>
       </button>
+      <button class="tab" role="tab" id="tab-course" data-tab="course" aria-selected="false">
+        <span class="long">Course methods</span><span class="short">Course</span><small>Fisher, LDA, SVM</small>
+      </button>
     </div>
     <div class="top-right">
       <button class="ghost" id="about-open" type="button">About</button>
@@ -85,6 +88,7 @@
     <section id="stage" aria-label="3D view of the network">
       <canvas id="view"></canvas>
       <div id="lr-root" class="lr-root" hidden aria-label="Charts: which of the 528 inputs matter"></div>
+      <div id="course-root" class="lr-root" hidden aria-label="Charts: the course's feature selection and classifiers on the welds"></div>
       <div class="labels" id="labels"></div>
 
       <div class="hud hud-tl">
@@ -147,6 +151,7 @@
       <p><strong>How it was written.</strong> For the LLM-written tab: the exact prompt, OpenAI's summaries of Astra's reasoning, Astra's plan, its edits group by group, the explanation it gave when asked two days later, and the rule decoded from the finished weights. The reasoning itself was not returned by the API: the summaries are a summarizer's paraphrase of it, and the later explanation is after the fact, not a trace.</p>
       <p><strong>Written from 18 welds tab.</strong> Dennis's experiment (branch <code>dennis/usmw-few-welds</code>): not the MLP, but a centroid per condition and a spread per feature on 8 features, written by Claude Fable 5.2 and Claude Sonnet 5.5 from 18 labelled welds. About 70% on the 252 held-out welds, against 69% for a formula with no AI.</p>
       <p><strong>Which inputs matter tab.</strong> Not a network: charts of an exploratory analysis in the research repository (<code>experiments/usmw_feature_usefulness</code>, 2026-11-16). Logistic regression and the lasso on Prof. Shao's 528 inputs, one question at a time (three pairs of tools, three pairs of surfaces, all 9 conditions), on the group's 5 splits; what the trained networks lose when groups of inputs are shuffled; and time-window inputs for comparison. Every chart shows held-out test accuracy or how often an input was picked; the window statistics were chosen after looking at the labels, so their accuracy is optimistic.</p>
+      <p><strong>Course methods tab.</strong> Not a network: what the ME 499/599 lectures on feature selection and classification (Topics 9 to 12, Lab 4) show on the 270 welds (<code>experiments/usmw_course_methods</code>, 2026-11-17). When each weld was made; Fisher's ratio for each feature, pooled and per tool; how much Prof. Shao's 12 statistics repeat each other; Lab 4's screen-then-LDA/QDA procedure; Prof. Shao's residuals inside each tool session; and eight classifiers on the same splits. Exploratory: every model uses all 162 training welds, and no LLM is involved.</p>
       <p><strong>Inputs.</strong> The real welds are held-out test welds of split 0, standardized with the checkpoint's own scaler. Nine were picked among the welds the trained network reads correctly and one among those it misreads, so they are not a fair sample of its accuracy. The synthetic inputs are not welds: each is the smallest pattern the trained network reads as one class with 99% confidence.</p>
       <p><strong>Private.</strong> The weights, the weld features and the prompts (which hold weld values) come from a course dataset that is not public. Please do not pass this page, its link or its data files on outside the team. The published copy is locked: it opens only from the full link.</p>
       <p class="credit">Inspired by Brendan Bycroft's <a href="https://bbycroft.net/llm" target="_blank" rel="noopener">LLM Visualization</a>. Drawn with three.js.</p>

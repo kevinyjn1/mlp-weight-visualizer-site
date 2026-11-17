@@ -2,7 +2,10 @@
 // logistic regression on Prof. Shao's features (weld-monitor/experiments/usmw_feature_usefulness/analyze.py, exported
 // by tools/usefulness.py). Every number on it comes from data/usefulness.json, except where a comment says otherwise.
 
-import { escapeHtml } from './md.js';
+import {
+  SENSOR_COLOR, SURFACE_COLOR, BLUES, ORANGES, STAT, INK, MUTED, GRID, ACCENT, ASTRA, pct, fx, esc, ramp, niceTicks,
+  header, segmented, legendRamp, createChartPanel,
+} from './chartkit.js';
 
 const TASKS = ['nine', 'tool_DN', 'tool_DW', 'tool_NW', 'surf_CX', 'surf_CP', 'surf_XP'];
 const SHORT = {
@@ -13,44 +16,15 @@ const KIND = { nine: '', tool_DN: 'Tool', tool_DW: 'Tool', tool_NW: 'Tool', surf
 // the pair each question compares: [attribute, first class, second class]
 const PAIR = { tool_DN: ['tool', 0, 1], tool_DW: ['tool', 0, 2], tool_NW: ['tool', 1, 2], surf_CX: ['surface', 0, 1], surf_CP: ['surface', 0, 2], surf_XP: ['surface', 1, 2] };
 const M_LABELS = ['1', '2', '3', '5', '10', '20', '50', 'all 528'];
-// Okabe-Ito hues: colour-blind safe. Sensors and surfaces never share a chart.
-const SENSOR_COLOR = { AE: '#0072B2', LVDT: '#E69F00', Power: '#009E73', Mic: '#CC79A7' };
-const SURFACE_COLOR = ['#D55E00', '#56B4E9', '#1b2030']; // clean, contaminated, polished
-const BLUES = ['#f3f7fd', '#deebf7', '#c6dbef', '#9ecae1', '#6baed6', '#4292c6', '#2171b5', '#08519c', '#08306b'];
-const ORANGES = ['#fdf6ee', '#fee6ce', '#fdd0a2', '#fdae6b', '#fd8d3c', '#f16913', '#d94801', '#a63603', '#7f2704'];
-const STAT = {
-  entropy: ['ent', 'entropy'], mean: ['mean', 'mean'], median: ['med', 'median'], p05: ['p5', '5th percentile'],
-  p25: ['p25', '25th percentile'], p75: ['p75', '75th percentile'], p95: ['p95', '95th percentile'], rms: ['rms', 'RMS'],
-  var: ['var', 'variance'], std: ['std', 'standard deviation'], zero_crossing_rate: ['zcr', 'zero-crossing rate'],
-  mean_crossing_rate: ['mcr', 'mean-crossing rate'],
-};
-const INK = '#1b2030';
-const MUTED = '#5a6173';
-const GRID = '#e3e6ec';
-const ACCENT = '#2c62dc';
-const ASTRA = '#b84e14';
 const ASTRA_EXP19 = { acc: 0.878, lo: 15, hi: 53 }; // EXP-19 RESULTS.md: arm N, 87.8%, replies use 15 to 53 inputs
 // EXP-19's logistic regression, clean<->polished mistakes per tool (its confusion matrix; RESULTS.md of this analysis)
 const MISTAKES = { Damaged: 3, New: 13, Worn: 9 };
-
-const pct = (v, d = 1) => (v == null ? '-' : `${(100 * v).toFixed(d)}%`);
-const fx = (v, d = 2) => `${v >= 0 ? '+' : '-'}${Math.abs(v).toFixed(d)}`;
-const esc = escapeHtml;
-
-function ramp(stops, v) {
-  const t = Math.max(0, Math.min(1, v)) * (stops.length - 1);
-  const k = Math.min(Math.floor(t), stops.length - 2);
-  const a = stops[k].match(/\w\w/g).map((h) => parseInt(h, 16));
-  const b = stops[k + 1].match(/\w\w/g).map((h) => parseInt(h, 16));
-  return `rgb(${a.map((x, n) => Math.round(x + (b[n] - x) * (t - k))).join(',')})`;
-}
 
 export function createLr({ root, data, state, actions }) {
   const U = data.usefulness;
   const N = U.names;
   const sel = state.lr;
   const W = U.welds;
-  const tips = [];
 
   // ---------------------------------------------------------------- names and small helpers
 
@@ -66,34 +40,20 @@ export function createLr({ root, data, state, actions }) {
   const classesOf = (k) => task(k).classes;
   const plotted = Object.keys(W.values).map(Number);
 
-  /** Tooltip text is kept in a list; the element carries its index. */
-  const tip = (html) => {
-    tips.push(html);
-    return `data-t="${tips.length - 1}"`;
-  };
-
-  function header(title, sub, controls = '') {
-    return `<div class="lr-head"><div><h2>${title}</h2>${sub ? `<p>${sub}</p>` : ''}</div>
-      ${controls ? `<div class="lr-controls">${controls}</div>` : ''}</div>`;
-  }
+  const panel = createChartPanel({
+    root,
+    onAct: (name, value) => act(name, value),
+    onChange: (ctl) => change(ctl),
+    onResize: () => render(),
+  });
+  const tip = (html) => panel.tip(html);
 
   function taskSelect() {
     const opts = TASKS.map((k) => `<option value="${k}"${k === sel.task ? ' selected' : ''}>${KIND[k] ? `${KIND[k]}: ` : ''}${SHORT[k]}</option>`).join('');
     return `<label class="lr-select"><span>Question</span><select data-ctl="task">${opts}</select></label>`;
   }
 
-  function segmented(name, items, value) {
-    return `<div class="lr-seg" role="group">${items.map(([v, label]) =>
-      `<button type="button" data-act="${name}:${v}" aria-pressed="${String(v) === String(value)}">${label}</button>`).join('')}</div>`;
-  }
 
-  function legendRamp(stops, left, right, label) {
-    const id = `g${stops === BLUES ? 'b' : 'o'}`;
-    return `<div class="lr-ramp"><span>${label}</span><span class="end">${left}</span>
-      <svg width="120" height="10" aria-hidden="true"><defs><linearGradient id="${id}">${stops.map((c, n) =>
-        `<stop offset="${n / (stops.length - 1)}" stop-color="${c}"/>`).join('')}</linearGradient></defs>
-      <rect width="120" height="10" rx="2" fill="url(#${id})"/></svg><span class="end">${right}</span></div>`;
-  }
 
   // ---------------------------------------------------------------- charts
 
@@ -496,14 +456,6 @@ export function createLr({ root, data, state, actions }) {
       ${part2}`;
   }
 
-  function niceTicks(lo, hi, count) {
-    const raw = (hi - lo) / count;
-    const mag = 10 ** Math.floor(Math.log10(raw));
-    const step = [1, 2, 2.5, 5, 10].map((f) => f * mag).find((v) => v >= raw) ?? 10 * mag;
-    const out = [];
-    for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) out.push(+v.toFixed(10));
-    return out;
-  }
 
   // ---------------------------------------------------------------- the walkthrough
 
@@ -662,19 +614,8 @@ export function createLr({ root, data, state, actions }) {
 
   // ---------------------------------------------------------------- drawing and events
 
-  const tipEl = document.createElement('div');
-  tipEl.className = 'tip';
-  tipEl.hidden = true;
-  const content = document.createElement('div');
-  content.className = 'lr-card';
-  root.append(content, tipEl);
-
   function render() {
-    tips.length = 0;
-    const step = STEPS[sel.step];
-    const width = Math.max(320, Math.min(root.clientWidth - 2 * 22 - 2 * 20, 980));
-    content.innerHTML = step.chart(width);
-    tipEl.hidden = true;
+    panel.draw(() => STEPS[sel.step].chart(panel.width()));
     return context();
   }
 
@@ -717,42 +658,11 @@ export function createLr({ root, data, state, actions }) {
     actions.changed();
   }
 
-  root.addEventListener('click', (e) => {
-    const el = e.target.closest('[data-act]');
-    if (!el) return;
-    const [name, ...rest] = el.dataset.act.split(':');
-    act(name, rest.join(':'));
-  });
-  root.addEventListener('change', (e) => {
-    const ctl = e.target.closest('[data-ctl]');
-    if (!ctl) return;
+  function change(ctl) {
     if (ctl.dataset.ctl === 'task') sel.task = ctl.value;
     if (ctl.dataset.ctl === 'plot') sel.plot = /^\d+$/.test(ctl.value) ? +ctl.value : ctl.value;
     actions.changed();
-  });
-  root.addEventListener('pointermove', (e) => {
-    const el = e.target.closest('[data-t]');
-    if (!el) {
-      tipEl.hidden = true;
-      return;
-    }
-    tipEl.innerHTML = tips[+el.dataset.t];
-    tipEl.hidden = false;
-    const box = root.getBoundingClientRect();
-    const x = e.clientX - box.left;
-    const y = e.clientY - box.top + root.scrollTop;
-    const w = tipEl.offsetWidth;
-    const h = tipEl.offsetHeight;
-    const left = Math.min(Math.max(x + 14, 8), box.width - w - 8);
-    const top = y + 18 + h > root.scrollTop + box.height - 8 ? Math.max(y - h - 12, root.scrollTop + 8) : y + 18;
-    tipEl.style.transform = `translate(${left}px, ${top}px)`;
-  });
-  root.addEventListener('pointerleave', () => {
-    tipEl.hidden = true;
-  });
-  new ResizeObserver(() => {
-    if (!root.hidden) render();
-  }).observe(root);
+  }
 
   return { STEPS, render, glance };
 }
