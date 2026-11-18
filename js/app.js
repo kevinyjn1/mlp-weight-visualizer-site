@@ -11,9 +11,10 @@ import { createMade, groupTitle } from './made.js';
 import { createFew } from './few.js';
 import { createLr } from './lr.js';
 import { createCourse } from './course.js';
+import { createMit, NETWORKS } from './mit.js';
 
 const $ = (sel) => document.querySelector(sel);
-const TABS = ['trained', 'written', 'few', 'lr', 'course'];
+const TABS = ['trained', 'written', 'few', 'mit', 'lr', 'course'];
 // the tabs that show charts instead of the 3D view, and the element each one draws into
 const CHART_ROOTS = { lr: '#lr-root', course: '#course-root' };
 // the link is "#<tab>", and in the locked public copy "#<tab>&k=<key>"
@@ -36,11 +37,12 @@ const state = {
   shown: 8,
   fewShown: 2,
   act: null,
-  mode: { trained: 'walk', written: 'walk', few: 'walk', lr: 'walk', course: 'walk' },
+  mode: { trained: 'walk', written: 'walk', few: 'walk', mit: 'walk', lr: 'walk', course: 'walk' },
   made: { group: 0, buildUp: false, fly: true },
   few: { set: 0, draw: 0, writer: 'fable', weld: 0, step: 0 },
   lr: { step: 0, task: 'surf_CP', feature: null, plot: null, metric: 0, model: 'mlp', sensor: 'Power', range: 300 },
   course: { step: 0, feature: null, group: 'pooled', screen: 'deduplicated', task: 'nine', features: 'raw' },
+  mit: { net: 'breakout', frame: 0, step: 0, unit: null, group: 0, playing: false, fly: true },
 };
 const DOC_STEP = { focus: null, contrib: [], shown: 8 }; // what the 3D view shows while a document is open
 let data = null;
@@ -48,8 +50,9 @@ let inputs = [];
 let predLabel = null;
 let made = null;
 let few = null;
+let mit = null; // MIT's own networks
 const charts = {}; // the chart tabs that have data: tab -> its module
-let layout = 'mlp'; // what the 3D view holds: Prof. Shao's MLP or Dennis's classifier
+let layout = 'mlp'; // what the 3D view holds: Prof. Shao's MLP, Dennis's classifier, or one of MIT's networks
 
 // room the framed blocks must leave free: the controls over the view, and a row of name tags above the blocks
 view.getInsets = () => {
@@ -65,11 +68,14 @@ view.getInsets = () => {
 // ------------------------------------------------------------------ what is on screen
 
 const isFew = () => state.tab === 'few';
+const isMit = () => state.tab === 'mit';
 const isChart = () => Boolean(charts[state.tab]);
 const chart = () => charts[state.tab];
 const mode = () => state.mode[state.tab];
-const steps = () => (isFew() ? few.STEPS : isChart() ? chart().STEPS : STEPS);
-const stepIndex = () => (isFew() ? state.few.step : isChart() ? state[state.tab].step : state.step);
+const steps = () => (isFew() ? few.STEPS : isMit() ? mit.STEPS : isChart() ? chart().STEPS : STEPS);
+const stepIndex = () => (isFew() ? state.few.step : isMit() ? state.mit.step : isChart() ? state[state.tab].step : state.step);
+/** The camera's frame for what is on screen: the step's, or the whole layout while a document is open. */
+const homeFrame = () => (mode() !== 'doc' ? steps()[stepIndex()].frame : isFew() ? 'fewAll' : isMit() ? mit.allFrame() : 'all');
 const currentInput = () => inputs[state.input];
 const lower = (c) => className(c, data.manifest).toLowerCase();
 const building = () => state.tab === 'written' && mode() === 'doc' && state.made.buildUp;
@@ -109,6 +115,10 @@ function render() {
     const c = few.render();
     renderPanel(c);
     renderDecal(c);
+    return;
+  }
+  if (isMit()) {
+    renderPanel(mit.render());
     return;
   }
   const net = currentNet();
@@ -241,7 +251,7 @@ function mlpGlance(c) {
 
 function renderPanel(c) {
   const doc = mode() === 'doc';
-  const modes = { trained: null, written: made && 'How it was written', few: 'Prompt and reply', lr: null, course: null }[state.tab];
+  const modes = { trained: null, written: made && 'How it was written', few: 'Prompt and reply', mit: "Astra's reply", lr: null, course: null }[state.tab];
   $('#panel').dataset.mode = mode();
   $('#modes').hidden = !modes;
   if (modes) {
@@ -250,8 +260,10 @@ function renderPanel(c) {
   }
   $('#made-root').hidden = !(doc && state.tab === 'written');
   $('#few-root').hidden = !(doc && isFew());
+  $('#mit-root').hidden = !(doc && isMit());
   if (doc) {
     if (isFew()) few.doc($('#few-root'));
+    else if (isMit()) mit.doc($('#mit-root'));
     else made.render();
     return;
   }
@@ -280,7 +292,7 @@ function renderPanel(c) {
   $('#back').disabled = $('#prev').disabled = k === 0;
   $('#next').disabled = k === list.length - 1;
   $('#continue').textContent = k === list.length - 1 ? 'Start over' : 'Continue';
-  $('#glance').innerHTML = isFew() ? few.glance(c) : isChart() ? chart().glance(c) : mlpGlance(c);
+  $('#glance').innerHTML = isFew() ? few.glance(c) : isMit() ? mit.glance(c) : isChart() ? chart().glance(c) : mlpGlance(c);
 }
 
 function renderDecal(c) {
@@ -322,6 +334,7 @@ function goTo(k) {
   const list = steps();
   const n = Math.min(Math.max(k, 0), list.length - 1);
   if (isFew()) state.few.step = n;
+  else if (isMit()) state.mit.step = n;
   else if (isChart()) state[state.tab].step = n;
   else state.step = n;
   showTip(null);
@@ -372,20 +385,54 @@ function setMode(next) {
 
 function setTab(tab) {
   if (tab === state.tab) return;
+  setPlaying(false);
   state.tab = tab;
   showTip(null);
   view.setMask(null);
   history.replaceState(null, '', `#${tab}${linkKey()}`);
   syncTabs();
-  const want = isFew() ? 'few' : 'mlp';
-  if (!isChart() && want !== layout) {
-    layout = want;
-    view.setLayout(want);
-    fillInputs();
-    fly(mode() === 'doc' ? (isFew() ? 'fewAll' : 'all') : steps()[stepIndex()].frame, 900);
-  }
+  applyLayout();
   state.made.fly = true;
   render();
+}
+
+/** Put the blocks of what is on screen in the 3D view, if they are not there already, and fly to them. */
+function applyLayout() {
+  const want = isFew() ? 'few' : isMit() ? mit.layout() : 'mlp';
+  if (isChart() || want === layout) return;
+  layout = want;
+  view.setLayout(want);
+  if (!isMit()) fillInputs();
+  fly(homeFrame(), 900);
+}
+
+// ------------------------------------------------------------------ MIT's networks: which one, and its episode
+
+let playTimer = null;
+function setPlaying(on) {
+  if (!mit) return;
+  state.mit.playing = on;
+  const b = $('#mit-play');
+  b.setAttribute('aria-pressed', String(on));
+  b.setAttribute('aria-label', on ? 'Pause the episode' : 'Play the episode');
+  b.title = b.getAttribute('aria-label');
+  clearInterval(playTimer);
+  playTimer = null;
+  if (!on) return;
+  if (state.mit.frame >= mit.frameCount() - 1) state.mit.frame = 0;
+  playTimer = setInterval(() => {
+    state.mit.frame += 1;
+    if (state.mit.frame >= mit.frameCount() - 1) setPlaying(false);
+    syncFrame();
+    render();
+  }, 300);
+}
+
+function syncFrame() {
+  const range = $('#mit-frame');
+  range.max = String(mit.frameCount() - 1);
+  range.value = String(state.mit.frame);
+  $('#mit-frame-out').textContent = `${state.mit.frame + 1} / ${mit.frameCount()}`;
 }
 
 function syncTabs() {
@@ -393,6 +440,8 @@ function syncTabs() {
   $('#reply-chip').hidden = state.tab !== 'written';
   for (const el of document.querySelectorAll('.few-only')) el.hidden = !isFew();
   $('#products').hidden = isFew();
+  for (const el of document.querySelectorAll('.mit-only')) el.hidden = !isMit();
+  $('#input-chip').hidden = isMit();
   for (const [tab, sel] of Object.entries(CHART_ROOTS)) $(sel).hidden = state.tab !== tab || !charts[tab];
   document.body.dataset.tab = state.tab;
   document.body.dataset.view = isChart() ? 'charts' : 'network';
@@ -545,7 +594,8 @@ function showTip(hit, event) {
     $('#view').classList.remove('over');
     return;
   }
-  const [title, ...lines] = isFew() ? few.describe(hit) : describe(hit);
+  const [title, ...lines] = isFew() ? few.describe(hit) : isMit() ? mit.describe(hit) : describe(hit);
+  if (isMit()) mit.hover(hit);
   tip.innerHTML = `<b>${escapeHtml(title)}</b>${lines.filter(Boolean).map((l) => `<span>${escapeHtml(l)}</span>`).join('')}`;
   tip.hidden = false;
   const stage = $('#stage').getBoundingClientRect();
@@ -556,12 +606,20 @@ function showTip(hit, event) {
   const left = Math.min(Math.max(x + 16, 8), stage.width - w - 8);
   const top = y + 20 + h > stage.height - 8 ? Math.max(y - h - 14, 8) : y + 20;
   tip.style.transform = `translate(${left}px, ${top}px)`;
-  view.setHighlights(isFew() ? few.linked(hit) : linked(hit));
+  view.setHighlights(isFew() ? few.linked(hit) : isMit() ? mit.linked(hit) : linked(hit));
   $('#view').classList.add('over');
 }
 
 /** A click on a written weight opens its backtrace: the group of statements that set it. */
 function select(hit) {
+  if (isMit()) {
+    if (!mit.select(hit)) return;
+    setPlaying(false);
+    state.mode.mit = 'doc';
+    render();
+    $('#mit-root [data-part="edits"]')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    return;
+  }
   const own = hit && origin(hit)?.own;
   if (!own) return;
   state.made.group = own[0];
@@ -660,7 +718,33 @@ function buildControls() {
   });
   $('#height').addEventListener('input', (e) => view.setHeightFactor(+e.target.value));
   $('#top-view').addEventListener('click', (e) => setTopView(e.currentTarget.getAttribute('aria-pressed') !== 'true'));
-  $('#reset-view').addEventListener('click', () => fly(mode() === 'doc' ? (isFew() ? 'fewAll' : 'all') : steps()[stepIndex()].frame, 900));
+  $('#reset-view').addEventListener('click', () => fly(homeFrame(), 900));
+  if (mit) {
+    const nets = $('#mit-net');
+    for (const [label, items] of NETWORKS) {
+      const g = document.createElement('optgroup');
+      g.label = label;
+      for (const [id, text] of items) g.append(new Option(text, id));
+      nets.append(g);
+    }
+    nets.value = state.mit.net;
+    nets.addEventListener('change', () => {
+      setPlaying(false);
+      mit.setNet(nets.value);
+      $('#mit-root').dataset.net = '';
+      syncFrame();
+      applyLayout();
+      render();
+    });
+    $('#mit-frame').addEventListener('input', (e) => {
+      setPlaying(false);
+      state.mit.frame = +e.target.value;
+      syncFrame();
+      render();
+    });
+    $('#mit-play').addEventListener('click', () => setPlaying(!state.mit.playing));
+    syncFrame();
+  }
   $('#about-open').addEventListener('click', () => $('#about').showModal());
   window.addEventListener('hashchange', () => setTab(fromHash()));
   window.addEventListener('keydown', (e) => {
@@ -725,6 +809,16 @@ async function start() {
     return;
   }
   inputs = [...data.inputs, { kind: 'noise', x: noiseInput(state.noiseSeed) }];
+  if (data.mit) {
+    const flyToCells = (id, list) => {
+      setTopView(false, false);
+      view.flyToCells(id, list);
+    };
+    mit = createMit({ view, data, state, actions: { fly, flyToCells } });
+    mit.buildLabels();
+    mit.bindDoc($('#mit-root'));
+    mit.selfCheck();
+  }
   const best = data.manifest.written.replies.reduce((b, r, k, all) => (r.accuracy.mean > all[b].accuracy.mean ? k : b), 0);
   state.reply = best;
   buildLabels();
@@ -755,7 +849,7 @@ async function start() {
   const chartActions = { changed: render, goTo, showInput };
   if (data.usefulness) charts.lr = createLr({ root: $('#lr-root'), data, state, actions: chartActions });
   if (data.course) charts.course = createCourse({ root: $('#course-root'), data, state, actions: chartActions });
-  const missing = (tab) => (tab === 'few' && !few) || (tab in CHART_ROOTS && !charts[tab]);
+  const missing = (tab) => (tab === 'few' && !few) || (tab === 'mit' && !mit) || (tab in CHART_ROOTS && !charts[tab]);
   for (const el of document.querySelectorAll('.tab')) if (missing(el.dataset.tab)) el.hidden = true;
   if (missing(state.tab)) state.tab = 'trained';
   buildControls();
@@ -766,6 +860,11 @@ async function start() {
     fillInputs();
     view.snapTo('fewAll');
   }
+  if (isMit()) {
+    layout = mit.layout();
+    view.setLayout(layout);
+    view.snapTo(homeFrame());
+  }
   view.onPick = showTip;
   view.onSelect = select;
   view.controls.addEventListener('start', () => {
@@ -774,7 +873,7 @@ async function start() {
   });
   render();
   $('#loading').hidden = true;
-  window.app = { state, view, data, goTo, setTab, setMode }; // handy in the console
+  window.app = { state, view, data, goTo, setTab, setMode, mit }; // handy in the console
 }
 
 start().catch((error) => {

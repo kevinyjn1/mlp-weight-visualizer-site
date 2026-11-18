@@ -367,41 +367,57 @@ class Block {
   }
 }
 
-function buildBlocks(box) {
+/**
+ * A chain of dense layers as a staircase that turns a corner at every layer. Layer k's matrix Wk sits between the
+ * strip that feeds it and its own strips (bias bk, sum zk, activation hk; the last layer ends in bL, zL and the output
+ * p), so a unit's sum can be read straight along its row or column. Odd layers run their inputs along x and their
+ * strips continue to the right; even layers turn and continue downwards. Block ids are `prefix` + x, W1, b1, ...
+ *
+ * spec: { layout, prefix, sizes: [inputs, units of layer 1, ..., outputs], pitches: [one per entry of sizes],
+ *         groups: extra gaps along the input axis }
+ */
+function buildChain(box, { layout, prefix = '', sizes, pitches, groups = NO_GROUPS }) {
   const blocks = {};
-  const add = (def) => (blocks[def.id] = new Block(def, box));
-  const strip = (id, ni, ox, oz, swap, pitchI, family, thick = T) =>
-    add({ id, ni, ox, oz, swap, pitchI, pitchJ: thick, family });
-
-  add({ id: 'x', ni: 528, ox: 0, oz: -(G + TX), pitchI: 1, pitchJ: TX, groups: IN_GROUPS, family: 'data' });
-  const w1 = add({ id: 'W1', ni: 528, nj: 150, ox: 0, oz: 0, pitchI: 1, pitchJ: PITCH[1], groups: IN_GROUPS, family: 'weights' });
-
-  let x = w1.rect().x1 + G;
-  strip('b1', 150, x, 0, true, PITCH[1], 'weights');
-  strip('z1', 150, (x += T + G), 0, true, PITCH[1], 'data');
-  strip('h1', 150, (x += T + G), 0, true, PITCH[1], 'data');
-  const w2 = add({ id: 'W2', ni: 150, nj: 100, ox: (x += T + G), oz: 0, swap: true, pitchI: PITCH[1], pitchJ: PITCH[2], family: 'weights' });
-
-  const x2 = w2.ox;
-  let z = w2.rect().z1 + G;
-  strip('b2', 100, x2, z, false, PITCH[2], 'weights');
-  strip('z2', 100, x2, (z += T + G), false, PITCH[2], 'data');
-  strip('h2', 100, x2, (z += T + G), false, PITCH[2], 'data');
-  const w3 = add({ id: 'W3', ni: 100, nj: 50, ox: x2, oz: (z += T + G), pitchI: PITCH[2], pitchJ: PITCH[3], family: 'weights' });
-
-  const z3 = w3.oz;
-  x = w3.rect().x1 + G;
-  strip('b3', 50, x, z3, true, PITCH[3], 'weights');
-  strip('z3', 50, (x += T + G), z3, true, PITCH[3], 'data');
-  strip('h3', 50, (x += T + G), z3, true, PITCH[3], 'data');
-  const w4 = add({ id: 'W4', ni: 50, nj: 9, ox: (x += T + G), oz: z3, swap: true, pitchI: PITCH[3], pitchJ: PITCH[4], family: 'weights' });
-
-  z = w4.rect().z1 + G;
-  strip('b4', 9, w4.ox, z, false, PITCH[4], 'weights');
-  strip('z4', 9, w4.ox, (z += T + G), false, PITCH[4], 'data');
-  strip('p', 9, w4.ox, (z += T + G), false, PITCH[4], 'prob', TX);
+  const add = (def) => (blocks[def.id] = new Block({ layout, ...def }, box));
+  const last = sizes.length - 1;
+  add({ id: `${prefix}x`, ni: sizes[0], ox: 0, oz: -(G + TX), pitchI: pitches[0], pitchJ: TX, groups, family: 'data' });
+  let [ox, oz] = [0, 0];
+  for (let k = 1; k <= last; k++) {
+    const across = k % 2 === 1;
+    const w = add({
+      id: `${prefix}W${k}`, ni: sizes[k - 1], nj: sizes[k], ox, oz, swap: !across, pitchI: pitches[k - 1],
+      pitchJ: pitches[k], groups: k === 1 ? groups : NO_GROUPS, family: 'weights',
+    });
+    const r = w.rect();
+    let along = across ? r.x1 + G : r.z1 + G;
+    const strips = [[`b${k}`, 'weights', T], [`z${k}`, 'data', T], k < last ? [`h${k}`, 'data', T] : ['p', 'prob', TX]];
+    for (const [name, family, thick] of strips) {
+      const [sx, sz] = across ? [along, oz] : [ox, along];
+      add({ id: `${prefix}${name}`, ni: sizes[k], ox: sx, oz: sz, swap: across, pitchI: pitches[k], pitchJ: thick, family });
+      along += thick + G;
+    }
+    if (across) ox = along;
+    else oz = along;
+  }
   return blocks;
 }
+
+/** Prof. Shao's weld classifier: 528 -> 150 -> 100 -> 50 -> 9. */
+const buildBlocks = (box) => buildChain(box, { layout: 'mlp', sizes: LAYERS, pitches: PITCH, groups: IN_GROUPS });
+
+/**
+ * MIT's networks (the "MIT's networks" tab), each in its own layout:
+ *   game  a MinAtar policy, 600 -> 32 -> 32 -> 6; the 600 inputs are 10 rows x 10 columns x 6 channels
+ *   car   the Kinetix car actor, 679 -> 128 (embed) -> 5 x 128 -> 16 logits
+ */
+const GAME_GROUPS = [[60, 5], [6, 0.7]]; // gaps between grid rows and between cells
+const buildGameBlocks = (box) => buildChain(box, {
+  layout: 'game', prefix: 'g', sizes: [600, 32, 32, 6], pitches: [1, 4.2, 4.2, 16], groups: GAME_GROUPS,
+});
+const buildCarBlocks = (box) => buildChain(box, {
+  layout: 'car', prefix: 'c', sizes: [679, 128, 128, 128, 128, 128, 128, 16],
+  pitches: [1, 2.2, 2.2, 2.2, 2.2, 2.2, 2.2, 9],
+});
 
 /**
  * The few-weld classifier (not an MLP): features across, classes down.
@@ -440,7 +456,7 @@ export class NetworkView {
     this.onFrame = null;
 
     const box = openBox();
-    this.blocks = { ...buildBlocks(box), ...buildFewBlocks(box) };
+    this.blocks = { ...buildBlocks(box), ...buildFewBlocks(box), ...buildGameBlocks(box), ...buildCarBlocks(box) };
     this.blockList = Object.values(this.blocks);
     this.layout = 'mlp';
     for (const b of this.blockList) {
@@ -478,10 +494,14 @@ export class NetworkView {
   #buildDecal() {
     const w1 = this.blocks.W1.rect();
     const fs = this.blocks.fs.rect();
+    const g1 = this.blocks.gW1.rect();
+    const c1 = this.blocks.cW1.rect();
     // where the title lies on the ground in each layout: x0, z0, width
     this.decalPlaces = {
       mlp: [w1.x0 + 14, w1.z1 + 66, w1.x1 - w1.x0 - 130], // leaves room for W1's name tag, stops short of W3's
       few: [fs.x0, fs.z1 + 84, this.blocks.ft.rect().x1 - fs.x0],
+      game: [g1.x0 + 8, g1.z1 + 44, g1.x1 - g1.x0 - 120],
+      car: [c1.x0 + 8, c1.z1 + 60, c1.x1 - c1.x0 - 60],
     };
     const canvas = document.createElement('canvas');
     canvas.width = 2048;
@@ -507,7 +527,7 @@ export class NetworkView {
     plane.position.set(x0 + width / 2, -0.8, z0 + depth / 2);
   }
 
-  /** Show one of the two sets of blocks ('mlp' or 'few'). */
+  /** Show one set of blocks: 'mlp', 'few', 'game' or 'car'. */
   setLayout(name) {
     if (name === this.layout) return;
     this.layout = name;
@@ -554,7 +574,7 @@ export class NetworkView {
     const w1 = R('W1');
     const h1 = R('h1');
     const b1 = R('b1');
-    const all = R(...Object.keys(this.blocks));
+    const all = R(...this.#ids('mlp'));
     this.frames = {
       all: { box: pad(all, 4), theta: -0.1, phi: 0.74 },
       input: { box: [x.x0 - 3, x.x0 + 124, x.z0 - 8, x.z1 + 8], theta: 0.12, phi: 0.7 },
@@ -577,6 +597,28 @@ export class NetworkView {
       fewDistance: { box: [fc.x1 - 60, R('ft').x1 + 12, fd.z0 - 30, fd.z1 + 12], theta: 0.1, phi: 0.74 },
       fewAnswer: { box: [fd.x0 - 8, R('ft').x1 + 90, fd.z0 - 14, fd.z1 + 10], theta: 0.14, phi: 0.76 },
     });
+    // MIT's networks: the whole layout (with its ground title), and one frame per layer
+    for (const [layout, p, last] of [['game', 'g', 3], ['car', 'c', 7]]) {
+      const id = (...names) => names.map((n) => p + n);
+      const [dx, dz, dw] = this.decalPlaces[layout];
+      const whole = R(...this.#ids(layout));
+      this.frames[`${p}All`] = {
+        box: [whole.x0 - 8, whole.x1 + 8, whole.z0 - 10, Math.max(whole.z1, dz + 0.36 * dw) + 8], theta: -0.1, phi: 0.74,
+      };
+      this.frames[`${p}Input`] = { box: [-3, 150, R(p + 'x').z0 - 8, R(p + 'x').z1 + 40], theta: 0.12, phi: 0.7 };
+      for (let k = 1; k <= last; k++) {
+        const before = k === 1 ? 'x' : `h${k - 1}`;
+        const after = k === last ? 'p' : `h${k}`;
+        this.frames[`${p}L${k}`] = { box: pad(R(...id(before, `W${k}`, after)), 4), theta: -0.1, phi: k === 1 ? 0.66 : 0.72 };
+      }
+      const middle = Array.from({ length: last - 2 }, (_, n) => `W${n + 2}`);
+      this.frames[`${p}Mid`] = { box: pad(R(...id('h1', ...middle, `h${last - 1}`)), 6), theta: -0.1, phi: 0.72 };
+    }
+  }
+
+  /** The ids of the blocks of one layout. */
+  #ids(layout) {
+    return this.blockList.filter((b) => b.layout === layout).map((b) => b.id);
   }
 
   #buildControls() {

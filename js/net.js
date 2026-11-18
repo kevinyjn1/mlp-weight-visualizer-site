@@ -128,8 +128,9 @@ export async function loadData(base = 'data/') {
     if (error instanceof LockedError) throw error;
     return null; // a copy exported without this part
   });
-  const [provenance, few, usefulness, course] = await Promise.all([
+  const [provenance, few, usefulness, course, mitMeta] = await Promise.all([
     optional('provenance.json'), optional('few_welds.json'), optional('usefulness.json'), optional('course.json'),
+    optional('mit.json'),
   ]);
   return {
     manifest,
@@ -137,9 +138,22 @@ export async function loadData(base = 'data/') {
     few,
     usefulness,
     course,
+    mit: mitMeta && (await loadMit(mitMeta, read, json, base)),
     trained: parseWeights(trained),
     written: written.map(parseWeights),
     inputs: manifest.inputs.items.map((meta, k) => ({ ...meta, x: x.subarray(k * 528, (k + 1) * 528) })),
+  };
+}
+
+/** MIT's networks (tools/mit_networks.py): every weight file as raw bytes, and the car's recorded episodes. */
+async function loadMit(meta, read, json, base) {
+  const files = [...meta.games.map((g) => g.file), meta.car.files.trained, meta.car.files.edited];
+  const frames = meta.car.frames ? await json(meta.car.frames) : null;
+  const buffers = await Promise.all([...files, ...(frames ? [frames.file] : [])].map((f) => read(base + f)));
+  return {
+    meta,
+    buffers: Object.fromEntries(files.map((f, k) => [f, buffers[k]])),
+    frames: frames && { ...frames, x: new Float32Array(buffers[files.length]) },
   };
 }
 
