@@ -128,9 +128,9 @@ export async function loadData(base = 'data/') {
     if (error instanceof LockedError) throw error;
     return null; // a copy exported without this part
   });
-  const [provenance, few, usefulness, course, mitMeta] = await Promise.all([
+  const [provenance, few, usefulness, course, mitMeta, wm] = await Promise.all([
     optional('provenance.json'), optional('few_welds.json'), optional('usefulness.json'), optional('course.json'),
-    optional('mit.json'),
+    optional('mit.json'), optional('wm.json'),
   ]);
   return {
     manifest,
@@ -138,6 +138,8 @@ export async function loadData(base = 'data/') {
     few,
     usefulness,
     course,
+    wm, // the world model's metadata; its weights and welds are read when the tab first opens
+    read: (file) => read(base + file),
     mit: mitMeta && (await loadMit(mitMeta, read, json, base)),
     trained: parseWeights(trained),
     written: written.map(parseWeights),

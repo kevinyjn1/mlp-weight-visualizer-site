@@ -12,11 +12,12 @@ import { createFew } from './few.js';
 import { createLr } from './lr.js';
 import { createCourse } from './course.js';
 import { createMit, NETWORKS } from './mit.js';
+import { createWm } from './wm.js';
 
 const $ = (sel) => document.querySelector(sel);
-const TABS = ['trained', 'written', 'few', 'mit', 'lr', 'course'];
+const TABS = ['trained', 'written', 'few', 'mit', 'lr', 'course', 'wm'];
 // the tabs that show charts instead of the 3D view, and the element each one draws into
-const CHART_ROOTS = { lr: '#lr-root', course: '#course-root' };
+const CHART_ROOTS = { wm: '#wm-root', lr: '#lr-root', course: '#course-root' };
 // the link is "#<tab>", and in the locked public copy "#<tab>&k=<key>"
 const fromHash = () => {
   const tab = location.hash.slice(1).split('&')[0];
@@ -37,12 +38,13 @@ const state = {
   shown: 8,
   fewShown: 2,
   act: null,
-  mode: { trained: 'walk', written: 'walk', few: 'walk', mit: 'walk', lr: 'walk', course: 'walk' },
+  mode: { trained: 'walk', written: 'walk', few: 'walk', mit: 'walk', wm: 'walk', lr: 'walk', course: 'walk' },
   made: { group: 0, buildUp: false, fly: true },
   few: { set: 0, draw: 0, writer: 'fable', weld: 0, step: 0 },
   lr: { step: 0, task: 'surf_CP', feature: null, plot: null, metric: 0, model: 'mlp', sensor: 'Power', range: 300 },
   course: { step: 0, feature: null, group: 'pooled', screen: 'deduplicated', task: 'nine', features: 'raw' },
   mit: { net: 'breakout', frame: 0, step: 0, unit: null, group: 0, playing: false, fly: true },
+  wm: { step: 0, weld: 0, net: 'B', layer: 0, head: -1, k: 5, test: 0, kind: 'blocks', playing: false },
 };
 const DOC_STEP = { focus: null, contrib: [], shown: 8 }; // what the 3D view shows while a document is open
 let data = null;
@@ -251,7 +253,7 @@ function mlpGlance(c) {
 
 function renderPanel(c) {
   const doc = mode() === 'doc';
-  const modes = { trained: null, written: made && 'How it was written', few: 'Prompt and reply', mit: "Astra's reply", lr: null, course: null }[state.tab];
+  const modes = { trained: null, written: made && 'How it was written', few: 'Prompt and reply', mit: "Astra's reply", wm: null, lr: null, course: null }[state.tab];
   $('#panel').dataset.mode = mode();
   $('#modes').hidden = !modes;
   if (modes) {
@@ -386,6 +388,7 @@ function setMode(next) {
 function setTab(tab) {
   if (tab === state.tab) return;
   setPlaying(false);
+  charts.wm?.stop(); // the world model's animation stops when its tab is left
   state.tab = tab;
   showTip(null);
   view.setMask(null);
@@ -849,6 +852,7 @@ async function start() {
   const chartActions = { changed: render, goTo, showInput };
   if (data.usefulness) charts.lr = createLr({ root: $('#lr-root'), data, state, actions: chartActions });
   if (data.course) charts.course = createCourse({ root: $('#course-root'), data, state, actions: chartActions });
+  if (data.wm) charts.wm = createWm({ root: $('#wm-root'), data, state, actions: chartActions });
   const missing = (tab) => (tab === 'few' && !few) || (tab === 'mit' && !mit) || (tab in CHART_ROOTS && !charts[tab]);
   for (const el of document.querySelectorAll('.tab')) if (missing(el.dataset.tab)) el.hidden = true;
   if (missing(state.tab)) state.tab = 'trained';
